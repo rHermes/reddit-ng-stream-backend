@@ -24,6 +24,8 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 4096,
 }
 
+type SubFilter func(*RedditSubmissionRefined) bool
+
 type Client struct {
 	hub *Hub
 
@@ -31,8 +33,8 @@ type Client struct {
 
 	send chan []byte
 
-	// which subreddits we listen to
-	subreddits map[string]struct{}
+	// A filter. Any one of these return false, we don't want the message
+	filters []SubFilter
 }
 
 func (c *Client) readPump() {
@@ -102,17 +104,54 @@ func (c *Client) writePump() {
 	}
 }
 
-func serveWs(w http.ResponseWriter, r *http.Request) {
-	hub := r.Context().Value(ctxHubKey).(*Hub)
-
-	subs := strings.Split(r.URL.Query().Get("subreddits"), ",")
+func SubredditNameFilter(subs []string) SubFilter {
 	wewant := make(map[string]struct{})
 	for _, s := range subs {
 		// if there was no query string specified, we will get a single array element with "". We want
 		// to filter that out, as it makes the checking for no filters much easier
-		if s != "" {
-			wewant[s] = struct{}{}
+		wewant[strings.ToLower(s)] = struct{}{}
+	}
+
+	return func(r *RedditSubmissionRefined) bool {
+		_, ok := wewant[strings.ToLower(r.Subreddit)]
+		return ok
+	}
+}
+
+func AgeRatingFilter(nsfw bool) SubFilter {
+	return func(r *RedditSubmissionRefined) bool {
+		return r.Over18 == nsfw
+	}
+}
+
+func serveWs(w http.ResponseWriter, r *http.Request) {
+	hub := r.Context().Value(ctxHubKey).(*Hub)
+
+	qs := r.URL.Query()
+
+	fs := make([]SubFilter, 0)
+
+	// subreddit filter
+	rSubs := qs.Get("subreddits")
+	if rSubs != "" {
+		fs = append(fs, SubredditNameFilter(strings.Split(rSubs, ",")))
+	}
+
+	// nsfw filter
+	rRating := strings.ToLower(qs.Get("rating"))
+	if rRating != "" {
+		var nsfw bool
+
+		if rRating == "nsfw" {
+			nsfw = true
+		} else if rRating == "sfw" {
+			nsfw = false
+		} else {
+			log.Printf("We got a weird rating value!: %s\n", rRating)
+			http.Error(w, "bad rating value", http.StatusBadRequest)
+			return
 		}
+		fs = append(fs, AgeRatingFilter(nsfw))
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -120,7 +159,8 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256), subreddits: wewant}
+
+	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256), filters: fs}
 	client.hub.register <- client
 
 	go client.writePump()

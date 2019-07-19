@@ -51,13 +51,20 @@ func (h *Hub) run() {
 				log.Printf("There was an error in the marhsaling: %s\n", err.Error())
 				continue
 			}
+
 			for client := range h.clients {
-				if len(client.subreddits) > 0 {
-					_, ok := client.subreddits[rd.Subreddit]
-					if !ok {
-						continue
+				// Filter process
+				process := true
+				for _, f := range client.filters {
+					if !f(&rd) {
+						process = false
+						break
 					}
 				}
+				if !process {
+					continue
+				}
+
 				select {
 				case client.send <- rdb:
 				default:

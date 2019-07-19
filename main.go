@@ -22,15 +22,9 @@ const (
 
 func sseFunnelBytes(c chan<- []byte) {
 	subs := make(chan *sse.Event)
-	coms := make(chan *sse.Event)
-	reds := make(chan *sse.Event)
-	keepalive := make(chan *sse.Event)
 
-	client := sse.NewClient("http://stream.pushshift.io")
+	client := sse.NewClient("http://stream.pushshift.io?type=submissions")
 	client.SubscribeChan("rs", subs)
-	client.SubscribeChan("rc", coms)
-	client.SubscribeChan("rr", reds)
-	client.SubscribeChan("keepalive", keepalive)
 
 	for {
 		select {
