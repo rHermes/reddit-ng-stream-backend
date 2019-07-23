@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -15,6 +16,11 @@ const (
 	ctxHubKey = "__hub_key__"
 
 	KindSubmission = "rs"
+)
+
+var (
+	staticFileServerAddress = flag.String("static", "http://localhost:1234", "The path to the static file server")
+	listenAddress           = flag.String("listen", ":8222", "The address to listen too")
 )
 
 func sseFunnelBytesSub(c chan<- []byte) {
@@ -32,6 +38,7 @@ func sseFunnelBytesSub(c chan<- []byte) {
 }
 
 func main() {
+	flag.Parse()
 
 	hub := newHub()
 	go hub.run()
@@ -48,16 +55,14 @@ func main() {
 
 	r.Get("/ws", serveWs)
 
-	// dev server
-	pxu := &url.URL{
-		Scheme: "http",
-		Host:   "localhost:1234",
+	pxu, err := url.Parse(*staticFileServerAddress)
+	if err != nil {
+		log.Fatalf("Invalid static fileserver error: %s\n", err.Error())
 	}
 	px := httputil.NewSingleHostReverseProxy(pxu)
-
 	r.NotFound(px.ServeHTTP)
 
-	if err := http.ListenAndServe(":8222", r); err != nil {
+	if err := http.ListenAndServe(*listenAddress, r); err != nil {
 		log.Fatal(err)
 	}
 }
