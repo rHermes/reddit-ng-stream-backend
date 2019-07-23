@@ -12,25 +12,21 @@ import (
 )
 
 const (
-	ctxRedditInKey = "__reddit_in_key__"
-	ctxHubKey      = "__hub_key__"
+	ctxHubKey = "__hub_key__"
 
 	KindSubmission = "rs"
-	KindComment    = "rc"
-	KindKeepalive  = "keepalive"
 )
 
-func sseFunnelBytes(c chan<- []byte) {
-	subs := make(chan *sse.Event)
-
-	client := sse.NewClient("http://stream.pushshift.io?type=submissions")
-	client.SubscribeChan("rs", subs)
-
+func sseFunnelBytesSub(c chan<- []byte) {
 	for {
-		select {
-		case k := <-subs:
-			// c <- &RedditSSERaw{kind: KindSubmission, data: k.Data}
-			c <- k.Data
+		client := sse.NewClient("http://stream.pushshift.io?type=submissions")
+		client.OnDisconnect(func(c *sse.Client) {
+			log.Printf("We got discconected, but we are trying to reconnect\n")
+		})
+
+		err := client.Subscribe("rs", func(msg *sse.Event) { c <- msg.Data })
+		if err != nil {
+			log.Printf("We got an error from subscribe: %s\n", err.Error())
 		}
 	}
 }
@@ -39,7 +35,7 @@ func main() {
 
 	hub := newHub()
 	go hub.run()
-	go sseFunnelBytes(hub.broadcast)
+	go sseFunnelBytesSub(hub.broadcast)
 
 	r := chi.NewRouter()
 
